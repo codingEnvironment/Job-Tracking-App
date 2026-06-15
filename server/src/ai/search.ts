@@ -30,6 +30,7 @@ export async function searchJobs(
   filters: SearchFilters
 ): Promise<JobResult[]> {
   const resumeSnippet = masterResume.trim().slice(0, 3000);
+  const today = new Date().toISOString().split('T')[0];
 
   const locationClause = filters.remote
     ? filters.location
@@ -46,7 +47,7 @@ export async function searchJobs(
       ? `Salary range: ${filters.salaryMin || 'any'} – ${filters.salaryMax || 'any'}.`
       : '';
 
-  const system = `You are a job search assistant with live web access. Search LinkedIn Jobs, Indeed, Glassdoor, Naukri, and similar job boards for REAL, currently open job postings.
+  const system = `You are a job search assistant with live web access. Today's date is ${today}. Search LinkedIn Jobs, Indeed, Glassdoor, Naukri, and similar job boards for REAL, currently open job postings.
 
 Return ONLY a valid JSON array — no markdown fences, no commentary, no text before or after the array.
 
@@ -60,17 +61,17 @@ Each element must match this exact shape:
   "url": string,
   "description": string (2-3 sentence summary of the role),
   "source": string (e.g. "LinkedIn", "Indeed", "Naukri", "Glassdoor"),
-  "postedAt": string (e.g. "3 days ago", "2 weeks ago", or an ISO date like "2026-05-15")
+  "postedAt": string (e.g. "3 days ago", "1 week ago", or an ISO date like "${today}")
 }
 
 HARD REQUIREMENTS — omit any result that fails any of these:
 - "title" must be a specific job title (not "Software role" or "various positions").
 - "company" must be the real hiring company's name. Never write "Unknown", "Various", "Confidential", or leave blank.
 - "url" must be a direct link to the live posting on the source job board. Do NOT fabricate URLs. If you cannot cite the actual posting URL from your search results, drop that job from the response.
-- "postedAt" must reflect when the posting first went live, taken from the source page (LinkedIn/Indeed/Naukri/Glassdoor all show this). Only return postings made within the LAST 30 DAYS. If you cannot determine the posting date from the source, OR the posting is older than 30 days, DROP that job. Stale listings — even if the company still has the link live — are not useful. Do not invent dates.
+- "postedAt" must reflect when the posting first went live, taken from the source page (LinkedIn/Indeed/Naukri/Glassdoor all show this). Only return postings made within the LAST 14 DAYS from today (${today}). Prefer results that show explicit relative timestamps like "2 days ago" or "1 week ago" — these are the most reliable freshness signals. If you cannot determine the posting date from the source, OR the posting is older than 14 days, DROP that job. Do not invent dates.
 
 For "salary" use an empty string if unknown — never null, never "Unknown".
-Return 8–12 high-quality results that all satisfy the requirements above. Quality matters more than quantity — better to return 6 verified, fresh postings than 12 half-known or stale ones.`;
+Return 8–12 high-quality results that all satisfy the requirements above. Quality matters more than quantity — better to return 5 verified, fresh postings than 12 half-known or stale ones.`;
 
   const user = `Search for current job openings ${roleClause}, ${locationClause}. ${salaryClause}
 
@@ -126,7 +127,7 @@ function postedDaysAgo(raw: string): number | null {
 // Drop results older than this many days. Looser than the prompt's 30-day
 // requirement so we don't nuke borderline-fresh postings; "a year ago" — the
 // real complaint that drove this filter — is well outside the window.
-const MAX_AGE_DAYS = 60;
+const MAX_AGE_DAYS = 14;
 
 function parseResults(raw: string): JobResult[] {
   // Strip any accidental markdown fences

@@ -5,5 +5,8 @@
       "Bash(npx vite *)",
       "Bash(npm install *)"
     ]
+  },
+  "remote": {
+    "defaultEnvironmentId": "env_013e4LWie5NvL9NSg3ZHTymc"
   }
 }

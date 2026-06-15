@@ -73,6 +73,10 @@ Server is ESM (`"type": "module"`). TS source imports use `.js` extensions even 
 
 Filters: `{ location?, remote: boolean, role?, salaryMin?, salaryMax? }`. The route returns 400 if `!remote && !location` — an unfocused global search wastes tokens and returns poor results. Token cap for this call is 4000 (10-15 job results as JSON would be truncated at the default 800).
 
+**Do not use `perplexity/sonar-deep-research` as the search model** — it is paid and OpenRouter upfront-reserves the full 4000-token cap against your credit balance, returning a 402 on free/low-balance accounts. Stick to `perplexity/sonar` (free tier).
+
+**Freshness window is 14 days**, enforced at two layers: the system prompt tells the model to drop any posting older than 14 days from today's date (injected as `${today}` at runtime), and `parseResults()` drops anything where `postedDaysAgo() > MAX_AGE_DAYS` (14). Do not raise `MAX_AGE_DAYS` — the original 60-day value was the root cause of stale results appearing.
+
 `parseResults()` in `search.ts` is defensive: strips markdown fences, finds the `[` … `]` boundaries, JSON.parses, and normalises every field to a string/boolean. Returns `[]` on any parse failure rather than throwing.
 
 The client (`SearchPage.tsx`) guards against missing resume (shows a banner + link to Settings) and missing location (disables the Search button). Results are displayed as `ResultCard` components with source-coloured badges; "Add to Board" calls `api.createJob()` with a formatted JD string and turns green after success.
