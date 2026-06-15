@@ -24,9 +24,9 @@ export default {
           tertiary: '#62666d',
         },
         primary: {
-          DEFAULT: '#5e6ad2',
-          hover: '#828fff',
-          focus: '#5e69d1',
+          DEFAULT: '#7c3aed',
+          hover: '#8b5cf6',
+          focus: '#6d28d9',
         },
         success: '#27a644',
         stage: {
