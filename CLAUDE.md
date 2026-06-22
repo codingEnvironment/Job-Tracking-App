@@ -29,7 +29,8 @@ Copy `.env.example` to `.env` at repo root. The server reads it via dotenv; Vite
 - `JWT_SECRET` — signing key for the session cookie
 - `APP_PASSWORD` — the single password that gates the app (no signup)
 - `OPENROUTER_API_KEY` — used server-side only; never sent to the client
-- `OPENROUTER_DEFAULT_MODEL` — falls back to `meta-llama/llama-3.3-70b-instruct:free` (no-credit-cost free model, rate-limited ~20/min ~200/day). Swap to a paid model like `anthropic/claude-sonnet-4.6` for higher-quality kits when credits are available.
+- `OPENROUTER_KIT_MODELS` — comma-separated cascade of kit-generation models. Tried in order; on 429 (rate limit) or 402 (credit) the request falls through to the next model. Default is intentionally short — `meta-llama/llama-3.3-70b-instruct:free, nvidia/nemotron-3-super-120b-a12b:free` — because each failed attempt costs 1–3s of dead time before streaming starts. Llama 3.3 leads because it's been the stable historical default; Nemotron is the on-quality-fail backup. **Do not extend the default chain "for safety"** — a 4-model chain was tried earlier and the rate-limit cascade added ~10s of pre-stream latency on the unhappy path, which is worse UX than the rare 429 error. If you genuinely need more resilience, switch to hedged parallel requests instead of lengthening the chain. All free models are rate-limited ~20/min ~200/day per provider.
+- `OPENROUTER_EXTRACT_MODEL` — lightweight JSON-extraction model used by the paste-JD ingestion path. Defaults to `meta-llama/llama-4-scout:free` (MoE, only 17B active params → fast inference for the 3-field extract job).
 - `OPENROUTER_SEARCH_MODEL` — live-web model used by the job search page only. Falls back to `perplexity/sonar`. Must be a model with native web access (Perplexity sonar family, or any model with the `:online` suffix). Try `perplexity/sonar-reasoning` for better grounding if your account has credits.
 - `CLIENT_ORIGIN` — must match the client URL for CORS + cookie `sameSite`
 
@@ -50,9 +51,11 @@ There is no signup. `APP_PASSWORD` is compared in plaintext at `/auth/login`; on
 
 The four kit kinds (`cover` | `bullets` | `questions` | `brief`) and their prompt templates live in `server/src/ai/prompts.ts`. The candidate profile (MERN + AWS) is baked into the system prompt for every kit. To add a new kit kind, update: `KIT_KINDS` in `models/Kit.ts`, the `buildPrompt` switch in `ai/prompts.ts`, and `KIT_TABS` in `client/src/components/JobDrawer.tsx`.
 
-`max_tokens` is capped explicitly in `server/src/ai/openrouter.ts` — 800 default for `generate()`, 1500 for `streamGenerate()`. This is required: OpenRouter reserves the cap against your balance up front, so omitting it makes the API reserve the full model context (e.g. 64k for Llama 3.3), which fails with a 402 on free/low-balance accounts even when the actual output is tiny. Don't remove the caps without raising the account balance.
+`max_tokens` is capped explicitly in `server/src/ai/openrouter.ts` — 800 default for both `generate()` and `streamGenerate()`. This is required: OpenRouter reserves the cap against your balance up front, so omitting it makes the API reserve the full model context (e.g. 64k for Llama 3.3), which fails with a 402 on free/low-balance accounts even when the actual output is tiny. Don't remove the caps without raising the account balance.
 
-`generate(messages, model?, maxTokens = 800)` — `maxTokens` is a parameter, not hardcoded. Callers that need larger output (e.g. search returning 10-15 JSON results) pass their own cap: `generate(msgs, SEARCH_MODEL, 4000)`.
+`generate(messages, model, maxTokens = 800)` — `model` is required (no implicit default), `maxTokens` is a parameter, not hardcoded. Callers that need larger output (e.g. search returning 10-15 JSON results) pass their own cap: `generate(msgs, SEARCH_MODEL, 4000)`.
+
+**Kit generation cascades through `env.OPENROUTER_KIT_MODELS`.** `routes/kit.ts` walks the chain in order. If the request body or `user.defaultModel` specifies a model, that's prepended to the chain (and de-duplicated from the rest). On `OpenRouterRetryableError` (status 429 rate-limit or 402 credit) the loop emits an SSE `info` event and moves to the next candidate. This is safe mid-handler because the retryable error is thrown from `streamGenerate` on the initial fetch response — *before* any delta has been yielded — so `full` is still `''` and switching models cannot send mismatched chunks. Non-retryable errors (auth, 5xx, network, malformed payload) break the loop immediately and surface as an SSE `error` event; do not "helpfully" cascade past these or you'll mask real bugs. The persisted `Kit.model` records which model actually produced the output. The cascade only works because the default chain spans four distinct providers — collapsing it to one provider defeats the purpose.
 
 ### Kit output renders as markdown
 `client/src/components/KitPanel.tsx` wraps output in `<ReactMarkdown>` with a `.kit-prose` scoped class (defined in `client/src/index.css`). Do not revert to `whitespace-pre-wrap` — the AI generates structured markdown (headers, bullets, bold) that needs to be rendered, not displayed raw. The `.kit-prose` styles cover h1-h3, p, ul/ol, strong, code, pre, blockquote, and hr using Linear color tokens.
@@ -130,11 +133,15 @@ Settings.json changes need `/hooks` to reload (or a Claude Code restart) before 
 
 
 
+
+
+
+
 <!-- cloude-code-toolbox:mcp-skills-awareness-begin -->
 
 ### MCP & Skills awareness (Cloude Code ToolBox)
 
-_Last synced: 2026-06-15T14:30:21.366Z._
+_Last synced: 2026-06-20T15:20:36.584Z._
 
 - **Full report:** `.claude/cloude-code-toolbox-mcp-skills-awareness.md` in this workspace (auto-overwritten on each scan). Use it as ground truth for configured servers and skill folders.
 - **MCP:** For **live tools** in Claude Code, enable the matching server via `/mcp`. Servers are configured in `~/.claude.json` (user) and `.mcp.json` (project).
@@ -158,8 +165,6 @@ _No active user-scoped servers in mcp.json._
 - **frontend-design** — `/Users/mamaheshreddy/Documents/Mahesh-docs/claude code/practice/job-tracking-app/.claude/skills/frontend-design` — Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.
 
 - **scope-feature** — `/Users/mamaheshreddy/Documents/Mahesh-docs/claude code/practice/job-tracking-app/.claude/skills/scope-feature` — Scope a feature before building it. Use this whenever the user wants to add, implement, or build something new — even if they don't say "scope". Triggers on "I want to add X", "can we add X", "let's build X", "add a feat
-
-- **frontend-design** — `/Users/mamaheshreddy/Documents/Mahesh-docs/claude code/practice/job-tracking-app/.agents/skills/frontend-design` — Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.
 
 #### User skills
 
